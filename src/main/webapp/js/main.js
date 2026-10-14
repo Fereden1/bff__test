@@ -10,9 +10,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const { posX, posY } = await getUserCoords();
       coordsEl.textContent = `Ваша позиция: posX=${posX.toFixed(5)}, posY=${posY.toFixed(5)}`;
 
-      const url = ctx + '/api/scooters/nearest?posX=' + encodeURIComponent(posX)
-        + '&posY=' + encodeURIComponent(posY);
-      const scooters = await fetch(url).then((r) => r.json());
+      const scooters = await fetch(ctx + '/api/scooters/nearest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ posX, posY })
+      }).then((r) => r.json());
 
       if (!Array.isArray(scooters)) {
         listEl.textContent = JSON.stringify(scooters);
@@ -25,18 +27,18 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       listEl.innerHTML = scooters.map((s) => {
-        const plate = s.numberPlate || s.number_plate || s.id;
+        const plate = s.numberPlate || s.number_plate;
         const dist = s.distance != null ? ` · ${Math.round(s.distance)} м` : '';
         const charge = s.charge != null ? ` · заряд ${s.charge}%` : '';
         const st = s.status ? ` · ${s.status}` : '';
         return `<div class="scooter-item">
-          <span><strong>${plate}</strong> (id=${s.id})${st}${charge}${dist}</span>
-          <button type="button" data-start="${s.id}">Заказать</button>
+          <span><strong>${plate}</strong>${st}${charge}${dist}</span>
+          <button type="button" data-plate="${plate}">Заказать</button>
         </div>`;
       }).join('');
 
-      listEl.querySelectorAll('[data-start]').forEach((btn) => {
-        btn.addEventListener('click', () => startRide(Number(btn.dataset.start)));
+      listEl.querySelectorAll('[data-plate]').forEach((btn) => {
+        btn.addEventListener('click', () => startRide(btn.dataset.plate));
       });
     } catch (e) {
       listEl.textContent = 'Нужен доступ к геолокации: ' + (e.message || e);
@@ -63,13 +65,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  async function startRide(scooterId) {
+  async function startRide(numberPlate) {
     try {
       const { posX, posY } = await getUserCoords();
       const res = await fetch(ctx + '/api/rides', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scooterId, posX, posY })
+        body: JSON.stringify({ numberPlate, posX, posY })
       });
       alert(res.ok ? 'Поездка начата' : await res.text());
       await loadNearest();

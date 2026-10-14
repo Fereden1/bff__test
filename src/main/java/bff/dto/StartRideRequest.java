@@ -3,13 +3,13 @@ package bff.dto;
 import java.math.BigDecimal;
 
 public class StartRideRequest {
-    private Long scooterId;
+    private String numberPlate;
     private Long rateId;
     private BigDecimal posX;
     private BigDecimal posY;
 
-    public Long getScooterId() { return scooterId; }
-    public void setScooterId(Long scooterId) { this.scooterId = scooterId; }
+    public String getNumberPlate() { return numberPlate; }
+    public void setNumberPlate(String numberPlate) { this.numberPlate = numberPlate; }
     public Long getRateId() { return rateId; }
     public void setRateId(Long rateId) { this.rateId = rateId; }
     public BigDecimal getPosX() { return posX; }

@@ -25,10 +25,6 @@ public final class ServiceConfig {
         return P.getProperty("user.service.url", "http://localhost:8081");
     }
 
-    public static String moderation() {
-        return P.getProperty("moderation.service.url", "http://localhost:8082");
-    }
-
     public static String scooter() {
         return P.getProperty("scooter.service.url", "http://localhost:8083");
     }

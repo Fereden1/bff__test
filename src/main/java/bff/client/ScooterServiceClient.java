@@ -15,16 +15,14 @@ public class ScooterServiceClient {
         return HttpClientHelper.get(url, jwt);
     }
 
-    public Response nearest(String jwt, String posX, String posY)
-            throws IOException, InterruptedException {
-        String url = ServiceConfig.scooter() + "/api/scooters/nearest"
-                + "?posX=" + enc(posX)
-                + "&posY=" + enc(posY);
-        return HttpClientHelper.get(url, jwt);
+    public Response nearest(String jwt, Object body) throws IOException, InterruptedException {
+        return HttpClientHelper.post(ServiceConfig.scooter() + "/api/scooters/nearest", jwt, body);
     }
 
-    public Response get(Long id, String jwt) throws IOException, InterruptedException {
-        return HttpClientHelper.get(ServiceConfig.scooter() + "/api/scooters/" + id, jwt);
+    public Response getByNumberPlate(String numberPlate, String jwt)
+            throws IOException, InterruptedException {
+        return HttpClientHelper.get(
+                ServiceConfig.scooter() + "/api/scooters/" + enc(numberPlate), jwt);
     }
 
     private static String enc(String v) {

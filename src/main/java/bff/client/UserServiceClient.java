@@ -29,4 +29,8 @@ public class UserServiceClient {
     public Response validate(String jwt) throws IOException, InterruptedException {
         return HttpClientHelper.get(ServiceConfig.user() + "/api/users/validate", jwt);
     }
+
+    public Response isBlocked(Long userId, String jwt) throws IOException, InterruptedException {
+        return HttpClientHelper.get(ServiceConfig.user() + "/api/users/" + userId + "/blocked", jwt);
+    }
 }

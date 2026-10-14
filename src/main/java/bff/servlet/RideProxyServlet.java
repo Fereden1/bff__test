@@ -1,7 +1,6 @@
 package bff.servlet;
 
 import bff.client.HttpClientHelper.Response;
-import bff.client.ModerationServiceClient;
 import bff.client.RideServiceClient;
 import bff.client.UserServiceClient;
 import bff.dto.EndRideRequest;
@@ -21,7 +20,6 @@ public class RideProxyServlet extends HttpServlet {
 
     private final RideServiceClient rides = new RideServiceClient();
     private final UserServiceClient users = new UserServiceClient();
-    private final ModerationServiceClient moderation = new ModerationServiceClient();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -101,7 +99,7 @@ public class RideProxyServlet extends HttpServlet {
     }
 
     private boolean blocked(Long userId, String jwt) throws IOException, InterruptedException {
-        Response r = moderation.isBlocked(userId, jwt);
+        Response r = users.isBlocked(userId, jwt);
         if (!r.ok() || r.body() == null) {
             return true;
         }
@@ -109,3 +107,4 @@ public class RideProxyServlet extends HttpServlet {
         return Boolean.TRUE.equals(map.get("blocked"));
     }
 }
+
