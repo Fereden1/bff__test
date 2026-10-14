@@ -1,110 +1,177 @@
 package bff.servlet;
 
-import bff.client.HttpClientHelper.Response;
-import bff.client.RideServiceClient;
-import bff.client.UserServiceClient;
 import bff.dto.EndRideRequest;
+import bff.dto.JsonResponse;
 import bff.dto.StartRideRequest;
 import bff.dto.UserDto;
-import bff.util.JsonUtil;
+import bff.service.RideService;
+import bff.service.ServiceException;
+import bff.service.UserService;
+import bff.service.impl.JsonText;
+import bff.service.impl.RideServiceRestImpl;
+import bff.service.impl.UserServiceRestImpl;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
-import java.util.Map;
 
 @WebServlet("/api/rides/*")
 public class RideProxyServlet extends HttpServlet {
 
-    private final RideServiceClient rides = new RideServiceClient();
-    private final UserServiceClient users = new UserServiceClient();
+    private RideService rideService;
+    private UserService userService;
 
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String jwt = ServletSupport.requireJwt(req, resp);
-        if (jwt == null) return;
+    public void init() throws ServletException {
+        rideService = new RideServiceRestImpl();
+        userService = new UserServiceRestImpl();
+    }
 
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String jwt = requireJwt(req, resp);
+        if (jwt == null) {
+            return;
+        }
         try {
-            UserDto me = me(jwt);
-            ServletSupport.proxy(resp, rides.byUser(me.getId(), jwt));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            ServletSupport.error(resp, 503, "Interrupted");
-        } catch (IOException e) {
-            ServletSupport.error(resp, 502, e.getMessage());
+            UserDto me = userService.currentUser(jwt);
+            JsonResponse rides = rideService.findByUser(jwt, me.id());
+            writeJson(resp, rides.status(), rides.body());
+        } catch (ServiceException e) {
+            log("Не удалось получить поездки", e);
+            writeServiceError(resp, e);
         }
     }
 
     @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String jwt = ServletSupport.requireJwt(req, resp);
-        if (jwt == null) return;
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String jwt = requireJwt(req, resp);
+        if (jwt == null) {
+            return;
+        }
 
         String path = req.getPathInfo() == null ? "" : req.getPathInfo();
+        req.setCharacterEncoding("UTF-8");
         try {
             if (path.isEmpty() || "/".equals(path)) {
-                StartRideRequest body = ServletSupport.body(req, StartRideRequest.class);
-                UserDto me = me(jwt);
-                if (blocked(me.getId(), jwt)) {
-                    ServletSupport.error(resp, 403, "User is blocked");
+                StartRideRequest body = readStart(req);
+                UserDto me = userService.currentUser(jwt);
+                if (userService.isBlocked(me.id(), jwt)) {
+                    writeError(resp, HttpServletResponse.SC_FORBIDDEN, "Пользователь заблокирован");
                     return;
                 }
-                ServletSupport.proxy(resp, rides.start(body, jwt));
+                JsonResponse started = rideService.start(jwt, body);
+                writeJson(resp, started.status(), started.body());
                 return;
             }
             if (path.matches("^/\\d+/pay$")) {
-                Long id = Long.parseLong(path.split("/")[1]);
-                ServletSupport.proxy(resp, rides.pay(id, jwt));
+                long id = Long.parseLong(path.split("/")[1]);
+                JsonResponse paid = rideService.pay(jwt, id);
+                writeJson(resp, paid.status(), paid.body());
                 return;
             }
-            ServletSupport.error(resp, 404, "Not found");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            ServletSupport.error(resp, 503, "Interrupted");
+            writeError(resp, HttpServletResponse.SC_NOT_FOUND, "Не найдено");
+        } catch (ServiceException e) {
+            log("Не удалось выполнить операцию с поездкой", e);
+            writeServiceError(resp, e);
         } catch (Exception e) {
-            ServletSupport.error(resp, 400, e.getMessage());
+            writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
+                    e.getMessage() != null ? e.getMessage() : "Некорректный запрос");
         }
     }
 
     @Override
-    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String jwt = ServletSupport.requireJwt(req, resp);
-        if (jwt == null) return;
+    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String jwt = requireJwt(req, resp);
+        if (jwt == null) {
+            return;
+        }
 
         String path = req.getPathInfo() == null ? "" : req.getPathInfo();
+        req.setCharacterEncoding("UTF-8");
         try {
             if (path.matches("^/\\d+/finish$")) {
-                Long id = Long.parseLong(path.split("/")[1]);
-                EndRideRequest body = ServletSupport.body(req, EndRideRequest.class);
-                ServletSupport.proxy(resp, rides.finish(id, body, jwt));
+                long id = Long.parseLong(path.split("/")[1]);
+                EndRideRequest body = readFinish(req);
+                JsonResponse finished = rideService.finish(jwt, id, body);
+                writeJson(resp, finished.status(), finished.body());
                 return;
             }
-            ServletSupport.error(resp, 404, "Not found");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            ServletSupport.error(resp, 503, "Interrupted");
+            writeError(resp, HttpServletResponse.SC_NOT_FOUND, "Не найдено");
+        } catch (ServiceException e) {
+            log("Не удалось завершить поездку", e);
+            writeServiceError(resp, e);
         } catch (Exception e) {
-            ServletSupport.error(resp, 400, e.getMessage());
+            writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
+                    e.getMessage() != null ? e.getMessage() : "Некорректный запрос");
         }
     }
 
-    private UserDto me(String jwt) throws IOException, InterruptedException {
-        Response r = users.me(jwt);
-        if (!r.ok()) {
-            throw new IOException("Cannot load user");
-        }
-        return JsonUtil.from(r.body(), UserDto.class);
+    private StartRideRequest readStart(HttpServletRequest req) throws IOException {
+        String json = JsonText.read(req.getInputStream());
+        return new StartRideRequest(
+                JsonText.string(json, "numberPlate"),
+                JsonText.longOrNull(json, "rateId"),
+                JsonText.raw(json, "posX"),
+                JsonText.raw(json, "posY"));
     }
 
-    private boolean blocked(Long userId, String jwt) throws IOException, InterruptedException {
-        Response r = users.isBlocked(userId, jwt);
-        if (!r.ok() || r.body() == null) {
-            return true;
+    private EndRideRequest readFinish(HttpServletRequest req) throws IOException {
+        String json = JsonText.read(req.getInputStream());
+        return new EndRideRequest(JsonText.raw(json, "posX"), JsonText.raw(json, "posY"));
+    }
+
+    private String requireJwt(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String token = jwt(req);
+        if (token == null || token.isBlank()) {
+            writeError(resp, HttpServletResponse.SC_UNAUTHORIZED, "Требуется авторизация");
+            return null;
         }
-        Map<?, ?> map = JsonUtil.from(r.body(), Map.class);
-        return Boolean.TRUE.equals(map.get("blocked"));
+        return token;
+    }
+
+    private String jwt(HttpServletRequest req) {
+        String header = req.getHeader("Authorization");
+        if (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            String value = header.substring(7).trim();
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        HttpSession session = req.getSession(false);
+        if (session != null && session.getAttribute("jwt") instanceof String token && !token.isBlank()) {
+            return token;
+        }
+        return null;
+    }
+
+    private void writeJson(HttpServletResponse resp, int status, String json) throws IOException {
+        resp.setStatus(status);
+        resp.setContentType("application/json");
+        resp.setCharacterEncoding("UTF-8");
+        resp.setHeader("Cache-Control", "no-store");
+        if (json != null && !json.isEmpty()) {
+            resp.getWriter().write(json);
+        }
+    }
+
+    private void writeError(HttpServletResponse resp, int status, String message) throws IOException {
+        writeJson(resp, status, "{\"error\":" + JsonText.quote(message) + "}");
+    }
+
+    private void writeServiceError(HttpServletResponse resp, ServiceException e) throws IOException {
+        String message = e.getMessage() == null ? "" : e.getMessage().trim();
+        if (message.startsWith("{") || message.startsWith("[")) {
+            writeJson(resp, e.status(), message);
+            return;
+        }
+        if (message.isBlank()) {
+            message = "Ошибка сервиса";
+        }
+        writeError(resp, e.status() == 0 ? HttpServletResponse.SC_INTERNAL_SERVER_ERROR : e.status(), message);
     }
 }
-
